@@ -1,4 +1,4 @@
-Package: censored-QRF
+Package: censoredQRF
 Type: Package
 Title: censored Quantile Random Forest
 Version: 0.2
@@ -13,6 +13,6 @@ Description: Censored Quantile Random Forest is for the censored regression prob
         'randomForest', written by Andy Liaw.
 License: GPL
 NeedsCompilation: yes
-URL: https://github.com/AlexanderYogurt/censored-QRF
-BugReports: https://github.com/AlexanderYogurt/censored-QRF/issues
+URL: https://github.com/AlexanderYogurt/censoredQRF
+BugReports: https://github.com/AlexanderYogurt/censoredQRF/issues
 RoxygenNote: 6.0.1
