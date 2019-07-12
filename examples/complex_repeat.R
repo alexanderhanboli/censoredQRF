@@ -1,0 +1,151 @@
+setwd("~/Projects/generalizedForest/examples")
+source("metrics.R")
+source("help_functions.R")
+source("crf_km.R")
+library(generalizedForest)
+library(quantregForest)
+library(ggplot2)
+library(grf)
+library(randomForestSRC)
+
+
+# Load in the data
+n <- 500
+n_test <- 300
+p <- 5
+nodesize <- 5
+ntree <- 1000
+
+one_run <- function(n, n_test, p, tau, nodesize, ntree) {
+  # training data
+  beta <- c(0.2,0.2,0.2,0.2,0.2)
+  sigma <- 0.3
+  # training data
+  Xtrain <- matrix(runif(n = n*p, min = 0, max = 2*pi), nrow = n, ncol = p)
+  Xtrain[,1] <- sin(Xtrain[,1])
+  Xtrain[,2] <- cos(Xtrain[,2])
+  Xtrain[,3] <- (Xtrain[,3])^2
+  Xtrain[,4] <- (Xtrain[,4])^3
+  Ttrain <- Xtrain%*%beta + rnorm(n, mean = 0, sd = sigma) + 5
+  ctrain <- rexp(n = n, rate = 0.015)
+  Ytrain <- pmin(Ttrain, ctrain)
+  censorInd <- 1*(Ttrain <= ctrain)
+  print(paste("censoring level is", 1-mean(censorInd)))
+  data_train <- cbind.data.frame(Xtrain, Ytrain, censorInd)
+  # test data
+  Xtest <- matrix(runif(n = n_test*p, min = 0, max = 2*pi), nrow = n_test, ncol = p)
+  Xtest[,1] <- sin(Xtest[,1])
+  Xtest[,2] <- cos(Xtest[,2])
+  Xtest[,3] <- (Xtest[,3])^2
+  Xtest[,4] <- (Xtest[,4])^3
+  quantile_test <- Xtest%*%beta + qnorm(tau, 0, sigma) + 5
+  Ytest <- Xtest%*%beta + rnorm(n_test, mean = 0, sd = sigma) + 5
+  data_test <- cbind.data.frame(Xtest, Ytest, rep(1, n_test))
+  # column names
+  xnam <- paste0('x', 1:p)
+  colnames(data_train) <- c(xnam, 'y', 'status')
+  colnames(data_test) <- c(xnam, 'y', 'status')
+  
+  # build generalizedForest model
+  fmla <- as.formula(paste("y ~ ", paste(xnam, collapse= "+")))
+  
+  Yc <- crf.km(fmla, ntree = ntree, nodesize = nodesize, data_train = data_train, data_test = data_test, 
+               yname = 'y', iname = 'status', tau = tau)$predicted
+  
+  # generalized random forest (Stefan's)
+  grf_qf_latent <- quantile_forest(data_train[,1:p,drop=FALSE], Ttrain, quantiles = tau, 
+                                   num.trees = ntree, min.node.size = nodesize)
+  Ygrf_latent <- predict(grf_qf_latent, Xtest, quantiles = tau)
+  
+  grf_qf <- quantile_forest(data_train[,1:p,drop=FALSE], Ytrain, quantiles = tau, 
+                            num.trees = ntree, min.node.size = nodesize)
+  Ygrf <- predict(grf_qf, Xtest, quantiles = tau)
+  
+  # quantile random forest (Meinshasen)
+  qrf_latent <- quantregForest(x=Xtrain, y=Ttrain, nodesize=nodesize, ntree=ntree)
+  Yqrf_latent <- predict(qrf_latent, Xtest, what = tau)
+  
+  qrf <- quantregForest(x=Xtrain, y=Ytrain, nodesize=nodesize, ntree=ntree)
+  Yqrf <- predict(qrf, Xtest, what = tau)
+  
+  # survival forest
+  surv_rf <- rfsrc(Surv(y, status) ~ ., data = data_train, ntree = ntree, nodesize = nodesize)
+  Ysurv <- predict(object = surv_rf, newdata = data_test)$predicted
+  
+  # results
+  return(
+    list(
+      'crf'=metrics(data_test$y, Yc, quantile_test, tau),
+      'qrf'=metrics(data_test$y, Yqrf, quantile_test, tau),
+      'qrf_latent'=metrics(data_test$y, Yqrf_latent, quantile_test, tau),
+      'grf'=metrics(data_test$y, Ygrf, quantile_test, tau),
+      'grf_latent'=metrics(data_test$y, Ygrf_latent, quantile_test, tau),
+      
+      'crf_c'=randomForestSRC:::cindex(data_test$y, data_test$status, Yc),
+      'qrf_c'=randomForestSRC:::cindex(data_test$y, data_test$status, Yqrf),
+      'qrf_latent_c'=randomForestSRC:::cindex(data_test$y, data_test$status, Yqrf_latent),
+      'rsf_c'=1-randomForestSRC:::cindex(data_test$y, data_test$status, Ysurv),
+      'grf_c'=randomForestSRC:::cindex(data_test$y, data_test$status, Ygrf),
+      'grf_latent_c'=randomForestSRC:::cindex(data_test$y, data_test$status, Ygrf_latent)
+    )
+  )
+}
+
+B = 40
+tau <- 0.9
+mse_result <- list('crf'=rep(NA,B), 'qrf'=rep(NA,B), 'grf'=rep(NA,B), 'qrf_oracle'=rep(NA,B), 'grf_oracle'=rep(NA,B))
+mad_result <- list('crf'=rep(NA,B), 'qrf'=rep(NA,B), 'grf'=rep(NA,B), 'qrf_oracle'=rep(NA,B), 'grf_oracle'=rep(NA,B))
+quantile_result <- list('crf'=rep(NA,B), 'qrf'=rep(NA,B), 'grf'=rep(NA,B), 'qrf_oracle'=rep(NA,B), 'grf_oracle'=rep(NA,B))
+cindex_result <- list('crf'=rep(NA,B), 'rsf'=rep(NA,B), 'qrf'=rep(NA,B), 'grf'=rep(NA,B), 'qrf_oracle'=rep(NA,B), 'grf_oracle'=rep(NA,B))
+for (t in 1:B) {
+  print(t)
+  
+  tmp <- one_run(n, n_test, p, tau, nodesize, ntree)
+  
+  mse_result$crf[t] <- tmp$crf['mse']
+  mse_result$qrf[t] <- tmp$qrf['mse']
+  mse_result$qrf_oracle[t] <- tmp$qrf_latent['mse']
+  mse_result$grf[t] <- tmp$grf['mse']
+  mse_result$grf_oracle[t] <- tmp$grf_latent['mse']
+  
+  mad_result$crf[t] <- tmp$crf['mad']
+  mad_result$qrf[t] <- tmp$qrf['mad']
+  mad_result$qrf_oracle[t] <- tmp$qrf_latent['mad']
+  mad_result$grf[t] <- tmp$grf['mad']
+  mad_result$grf_oracle[t] <- tmp$grf_latent['mad']
+  
+  quantile_result$crf[t] <- tmp$crf['quantile_loss']
+  quantile_result$qrf[t] <- tmp$qrf['quantile_loss']
+  quantile_result$qrf_oracle[t] <- tmp$qrf_latent['quantile_loss']
+  quantile_result$grf[t] <- tmp$grf['quantile_loss']
+  quantile_result$grf_oracle[t] <- tmp$grf_latent['quantile_loss']
+  
+  cindex_result$crf[t] <- tmp$crf_c
+  cindex_result$qrf[t] <- tmp$qrf_c
+  cindex_result$qrf_oracle[t] <- tmp$qrf_latent_c
+  cindex_result$rsf[t] <- tmp$rsf_c
+  cindex_result$grf[t] <- tmp$grf_c
+  cindex_result$grf_oracle[t] <- tmp$grf_latent_c
+}
+
+# boxplot
+require(reshape2)
+dd <- as.data.frame(quantile_result)
+ggplot(data = melt(dd), aes(x=variable, y=value)) + 
+  geom_boxplot(aes(fill=variable)) + labs(x = "Model", y = paste("Quantile loss, tau =", tau), fill = "Model")
+ggsave(paste0("complex_multi_quantile_loss_result_", 10*tau, ".pdf"), width = 5, height = 5, path = "./results/")
+
+dd <- as.data.frame(mse_result)
+ggplot(data = melt(dd), aes(x=variable, y=value)) + 
+  geom_boxplot(aes(fill=variable)) + labs(x = "Model", y = paste("MSE, tau =", tau), fill = "Model")
+ggsave(paste0("complex_multi_mse_result_", 10*tau, ".pdf"), width = 5, height = 5, path = "./results/")
+
+dd <- as.data.frame(mad_result)
+ggplot(data = melt(dd), aes(x=variable, y=value)) + 
+  geom_boxplot(aes(fill=variable)) + labs(x = "Model", y = paste("MAD, tau =", tau), fill = "Model")
+ggsave(paste0("complex_multi_mad_result_", 10*tau, ".pdf"), width = 5, height = 5, path = "./results/")
+
+dd <- as.data.frame(cindex_result)
+ggplot(data = melt(dd), aes(x=variable, y=value)) + 
+  geom_boxplot(aes(fill=variable)) + labs(x = "Model", y = paste("C-index, tau =", tau), fill = "Model")
+ggsave(paste0("complex_multi_cindex_result_", 10*tau, ".pdf"), width = 5, height = 5, path = "./results/")

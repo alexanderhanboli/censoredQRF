@@ -1,0 +1,18 @@
+Package: censored-QRF
+Type: Package
+Title: censored Quantile Random Forest
+Version: 0.2
+Date: 2019-07-12
+Author: Alexander Hanbo Li
+Maintainer: Alexander Hanbo Li <alexanderhanboli@gmail.com>
+Depends: R (>= 2.5.0), stats
+Suggests: RColorBrewer, MASS, gss,
+          knitr,
+          rmarkdown
+Description: Censored Quantile Random Forest is for the censored regression problems. The package is dependent on the package
+        'randomForest', written by Andy Liaw.
+License: GPL
+NeedsCompilation: yes
+URL: https://github.com/AlexanderYogurt/censored-QRF
+BugReports: https://github.com/AlexanderYogurt/censored-QRF/issues
+RoxygenNote: 6.0.1
