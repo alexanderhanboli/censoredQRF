@@ -1,4 +1,4 @@
-useDynLib(generalizedForest)
+useDynLib(censoredQRF)
 
 export(combine, getTree, grow, importance, margin, MDSplot, na.roughfix,
        partialPlot, randomForest, rfImpute, treesize, tuneRF,
